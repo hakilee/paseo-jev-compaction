@@ -1,10 +1,12 @@
 # paseo-jev-compaction
 
-Run a pinned Jev-enabled Codex engine as a separate Paseo provider. Manual and context-limit automatic compaction try conservative native history selection, then fall back to Codex compaction when selection fails or cannot save enough tokens. Token-budget and model-transition compaction keep native behavior.
+Use Jev history compaction with Codex in Paseo. This project adds a separate provider and keeps the standard Codex provider available.
 
-## Build and verify
+Manual compaction and automatic compaction at the context limit try Jev first. If Jev fails or saves too few tokens, Codex handles compaction. Token-budget and model-transition compaction use Codex directly.
 
-Requirements: macOS, Node.js 22+, Python 3.11+, Git and Rust 1.95.0. The engine is built from the revision in `engine.lock.json` with the reviewed patch in `patches/history-only.patch`. Building downloads Rust dependencies and pinned upstream V8 artifacts. No API key is required to build or run offline tests.
+## Build
+
+Requirements: macOS, Node.js 22+, Python 3.11+, Git and Rust 1.95.0.
 
 ```sh
 npm run check
@@ -14,42 +16,62 @@ npm run smoke
 node bin/paseo-jev-compaction.mjs doctor
 ```
 
-The wrapper verifies the engine source revision, patch hash and both executable hashes before launching. A failed integrity check requires rebuilding; it does not silently execute another engine.
+The build uses `engine.lock.json` and `patches/history-only.patch`. It downloads Rust dependencies and pinned V8 artifacts. Builds and offline tests need no API key.
 
-## Connect to Paseo
+Before launch, the wrapper checks the source revision, patch hash and both executable hashes. Rebuild the engine if these checks fail.
 
-Generate the provider entry:
+## Connect
+
+Generate a provider entry:
 
 ```sh
 node bin/paseo-jev-compaction.mjs provider-config
 ```
 
-Merge the generated `agents.providers.codex-jev` entry into your Paseo configuration. Preserve other providers and settings. Select **Codex · Jev compaction** for a new test agent. Installing this project does not modify Paseo configuration, restart the daemon, or replace the standard Codex provider.
+Add `agents.providers.codex-jev` to your Paseo configuration. Keep your other settings. Select **Codex · Jev compaction** when you create an agent.
 
-Paseo appends `app-server` to the configured command. The wrapper forwards arguments and stdio unchanged, including permissions and native tool events. Use the standard Codex provider to stop using this integration. An active agent cannot hot-swap its engine.
+Installation does not change Paseo settings or restart the daemon. Paseo adds `app-server` to the command. The wrapper passes arguments, permissions, tool events and standard input/output through unchanged.
 
-## Credentials and operation
+To stop using Jev, create an agent with the standard Codex provider. An active agent cannot change engines.
 
-The wrapper prefers inherited `TYPESAFE_AI_KEY`, then `TYPESAFE_API_KEY`. If neither is available, it reads a single literal `TYPESAFE_AI_KEY` assignment from `~/.zprofile`. It never evaluates shell commands or substitutions. Profiles using command substitution must provide the key through the launch environment.
+## Keys and models
 
-The key is passed only through the child environment. It is not printed, written to a configuration file, or included in command arguments. Missing keys disable Jev for this engine, including unrelated saved Jev keys. Codex authentication and `CODEX_HOME` remain unchanged.
+The wrapper checks these key sources in order:
 
-The wrapper loads the standard Codex `models_cache.json` through the engine's `model_catalog_json` startup setting. This preserves full model metadata, reasoning options and context limits instead of relying on the fork's older discovery results. `PASEO_JEV_MODEL_CATALOG` selects an explicit catalog path. Refresh the standard Codex model list before starting a new Jev engine to pick up catalog updates. Without a default cache, the engine uses its own catalog; an invalid or missing explicit catalog fails visibly. Existing engine processes retain their startup catalog.
+1. `TYPESAFE_AI_KEY` in the launch environment.
+2. `TYPESAFE_API_KEY` in the launch environment.
+3. One literal `TYPESAFE_AI_KEY` assignment in `~/.zprofile`.
 
-History-only mode disables the fork's independent outgoing-message and tool-output compression. It leaves user/assistant text, opaque checkpoints, images and recent evidence intact. Only complete older built-in `read_file`, `grep_files` and `list_dir` call/result pairs are candidates. Unknown tools, code-mode cells, writes, unsuccessful outputs and running command receipts remain protected. Entire pairs are retained or removed; results are never shortened to a prefix.
+It does not run shell commands from the profile. For command-based keys, use the launch environment.
 
-Jev receives bounded textual history, relevant instructions and complete candidate results. It must judge each removal safe and then independently judge combined removal safe at the engine's 0.95 threshold. This is probabilistic selection, not proof of semantic equivalence. The engine requires at least 25% estimated token savings including its recovery marker. API failure, invalid probabilities, timeout, failed preservation checks or insufficient savings use native compaction.
+The key stays in the engine's environment. The wrapper does not print it or save it in configuration or command arguments. Without a key, Jev is disabled, even if Codex has a saved Jev key. Codex authentication and `CODEX_HOME` stay unchanged.
 
-Original pre-compaction history is archived privately under the selected Codex home's `jev-originals` before replacement. A compacted history includes its recovery reference. Do not delete archives while dependent sessions still need them. Jev adds separate API usage and can receive private tool contents when this provider is enabled.
+The wrapper reads the standard Codex `models_cache.json` through `model_catalog_json`. This includes model names, reasoning options and context limits. Use `PASEO_JEV_MODEL_CATALOG` to select another file.
 
-## Acceptance
+Refresh the standard Codex model list, then start a new Jev engine to load updates. Without a default cache, the engine uses its own catalog. An invalid catalog or a missing explicit file stops launch.
 
-Offline checks must prove credential handling, executable integrity and provider configuration. Native scoped tests must prove protected writes/errors/unknown calls, unchanged narrative/checkpoints and recoverable history replacement. A stdio smoke must initialize the actual engine and start an ephemeral thread without a model turn.
+## History handling
 
-Before using real long-running work, compare continuation accuracy, actual total usage and accepted-compaction/fallback events against the standard provider. Synthetic reduction percentages and upstream tests do not establish production savings. Paseo UI acceptance, authentication/resume compatibility and physical long-session behavior are separate verification items.
+Jev can remove complete, older `read_file`, `grep_files` and `list_dir` call/result pairs. It does not shorten their results.
+
+User and assistant text, images, checkpoints and recent evidence stay intact. Writes, unknown tools, code-mode cells, failed outputs and running commands are protected. Separate outgoing-message and tool-output compression is disabled.
+
+Jev receives a limited amount of text history, relevant instructions and complete candidate results. Private tool contents can reach the Jev API. Jev usage has a separate cost.
+
+Each removal and the combined selection must meet the 0.95 safety threshold. Selection must save at least 25% of estimated tokens, including the recovery marker. API errors, timeouts, invalid probabilities, preservation failures or insufficient savings use Codex compaction. These checks cannot prove that no meaning is lost.
+
+The engine saves original history under `CODEX_HOME/jev-originals` before replacement. Compacted history includes a recovery reference. Keep these private archives while sessions depend on them.
+
+## Verification
+
+Offline tests cover keys, engine integrity and provider configuration. Native scoped tests cover protected history and recoverable replacement. The smoke check lists models and starts a temporary thread without a model turn.
+
+Before relying on long sessions, compare continuation accuracy, total usage and compaction events with standard Codex. UI behavior, authentication, session resume and long-session behavior still need separate verification. Synthetic reduction figures do not prove production savings.
 
 ## Sources and license
 
-This project integrates [yannip1234/codex-jev](https://github.com/yannip1234/codex-jev), pinned in `engine.lock.json`, based on [OpenAI Codex](https://github.com/openai/codex). The engine and patches retain Apache-2.0 attribution. [fast-jev-compaction](https://github.com/tamaratran/fast-jev-compaction) informs the tool-pair selection approach; its code is not included here.
+The pinned engine comes from [codex-jev](https://github.com/yannip1234/codex-jev), based on [OpenAI Codex](https://github.com/openai/codex). The engine and patches retain Apache-2.0 attribution.
 
-Paseo integration follows its [custom binary provider contract](https://github.com/getpaseo/paseo/blob/d1b705a0cd91617a5707fae25d80cb0be3057950/docs/custom-providers.md#custom-binary-for-a-provider). Native protocol expectations follow [Codex app-server documentation](https://learn.chatgpt.com/docs/app-server).
+[fast-jev-compaction](https://github.com/tamaratran/fast-jev-compaction) informed tool-pair selection. This project does not include its code.
+
+Integration follows the [Paseo provider contract](https://github.com/getpaseo/paseo/blob/d1b705a0cd91617a5707fae25d80cb0be3057950/docs/custom-providers.md#custom-binary-for-a-provider) and [Codex app-server protocol](https://learn.chatgpt.com/docs/app-server).
