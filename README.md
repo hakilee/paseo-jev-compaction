@@ -46,9 +46,11 @@ It does not run shell commands from the profile. For command-based keys, use the
 
 The key stays in the engine's environment. The wrapper does not print it or save it in configuration or command arguments. Without a key, Jev is disabled, even if Codex has a saved Jev key. Codex authentication and `CODEX_HOME` stay unchanged.
 
-The wrapper reads the standard Codex `models_cache.json` through `model_catalog_json`. This includes model names, reasoning options and context limits. Use `PASEO_JEV_MODEL_CATALOG` to select another file.
+The engine discovers models for its own version and account. Model names in another engine's cache do not prove access. An actual model response is required to verify support.
 
-Refresh the standard Codex model list, then start a new Jev engine to load updates. Without a default cache, the engine uses its own catalog. An invalid catalog or a missing explicit file stops launch.
+This pinned engine does not support `gpt-6.1-sol` with ChatGPT sign-in. Use standard Codex for that model. Jev compaction does not apply to the standard provider.
+
+Use `PASEO_JEV_MODEL_CATALOG` only for an explicit catalog override. An invalid or missing file stops launch. Start a new engine to load configuration changes.
 
 ## History handling
 
@@ -65,6 +67,12 @@ The engine saves original history under `CODEX_HOME/jev-originals` before replac
 ## Verification
 
 Offline tests cover keys, engine integrity and provider configuration. Native scoped tests cover protected history and recoverable replacement. The smoke check lists models and starts a temporary thread without a model turn.
+
+To check a real response, run the command below. It uses your Codex account and consumes model usage.
+
+```sh
+PASEO_JEV_SMOKE_LIVE=1 PASEO_JEV_SMOKE_MODEL=gpt-6-astra npm run smoke
+```
 
 Before relying on long sessions, compare continuation accuracy, total usage and compaction events with standard Codex. UI behavior, authentication, session resume and long-session behavior still need separate verification. Synthetic reduction figures do not prove production savings.
 

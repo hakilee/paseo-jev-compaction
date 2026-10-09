@@ -19,7 +19,7 @@ try {
       console.log(JSON.stringify({ engineVerified: true, keyAvailable: Boolean(credential.key), keySource: credential.source, mode: credential.key ? 'history-only' : 'native', autoConfigured: false }, null, 2));
     } else {
       if (!credential.key) process.stderr.write('Jev key unavailable; using native Codex compaction.\n');
-      const catalog = await catalogArguments(process.env, homedir());
+      const catalog = await catalogArguments(process.env);
       const child = spawn(engine, [...catalog, ...args], { stdio: 'inherit', env: launchEnvironment(process.env, credential.key) });
       for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => child.kill(signal));
       child.once('error', () => { process.stderr.write('Unable to start the verified engine.\n'); process.exitCode = 1; });
