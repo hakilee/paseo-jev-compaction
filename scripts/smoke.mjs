@@ -33,9 +33,13 @@ function request(method, params) {
 try {
   const initialize = await request('initialize', { clientInfo: { name: 'paseo_jev_smoke', version: '0.1.0' }, capabilities: { experimentalApi: true } });
   child.stdin.write(`${JSON.stringify({ method: 'initialized', params: {} })}\n`);
-  const start = await request('thread/start', { ephemeral: true, cwd: home, approvalPolicy: 'never', sandbox: 'read-only' });
+  const expectedModel = process.env.PASEO_JEV_SMOKE_MODEL;
+  const models = await request('model/list', { includeHidden: false });
+  if (!Array.isArray(models?.data) || (expectedModel && !models.data.some(model => model.id === expectedModel))) throw new Error('Expected model missing from native catalog');
+  const start = await request('thread/start', { ephemeral: true, cwd: home, approvalPolicy: 'never', sandbox: 'read-only', ...(expectedModel ? { model: expectedModel } : {}) });
   if (!initialize || typeof start?.thread?.id !== 'string') throw new Error('Unexpected app-server initialization/thread response');
-  const receipt = { passed: true, ephemeral: true, modelTurns: 0, scopedMethods: ['initialize', 'thread/start'], note: 'Protocol initialization only; no compaction, real account or Paseo UI acceptance claimed.' };
+  if (expectedModel && start.model !== expectedModel) throw new Error('Thread did not select the expected model');
+  const receipt = { passed: true, ephemeral: true, modelTurns: 0, modelCount: models.data.length, ...(expectedModel ? { selectedModel: start.model } : {}), scopedMethods: ['initialize', 'model/list', 'thread/start'], note: 'Protocol initialization only; no compaction, real account or Paseo UI acceptance claimed.' };
   await writeFile('artifacts/smoke.json', JSON.stringify(receipt, null, 2));
   console.log(JSON.stringify(receipt));
 } finally {

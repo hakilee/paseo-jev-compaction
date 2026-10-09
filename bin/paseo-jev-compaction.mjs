@@ -4,6 +4,7 @@ import { homedir } from 'node:os';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolveKey } from '../src/credentials.mjs';
+import { catalogArguments } from '../src/catalog.mjs';
 import { verifyEngine, providerConfig, launchEnvironment } from '../src/engine.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -18,7 +19,8 @@ try {
       console.log(JSON.stringify({ engineVerified: true, keyAvailable: Boolean(credential.key), keySource: credential.source, mode: credential.key ? 'history-only' : 'native', autoConfigured: false }, null, 2));
     } else {
       if (!credential.key) process.stderr.write('Jev key unavailable; using native Codex compaction.\n');
-      const child = spawn(engine, args, { stdio: 'inherit', env: launchEnvironment(process.env, credential.key) });
+      const catalog = await catalogArguments(process.env, homedir());
+      const child = spawn(engine, [...catalog, ...args], { stdio: 'inherit', env: launchEnvironment(process.env, credential.key) });
       for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => child.kill(signal));
       child.once('error', () => { process.stderr.write('Unable to start the verified engine.\n'); process.exitCode = 1; });
       child.once('exit', (code, signal) => { process.exitCode = code ?? (signal === 'SIGINT' ? 130 : 143); });
