@@ -1,0 +1,7 @@
+{
+  "repository": "https://github.com/yannip1234/codex-jev.git",
+  "revision": "ff35965bba78ac9502424c1d9bc7877f382499a2",
+  "rust": "1.95.0",
+  "profile": "dev-small",
+  "patch": "patches/history-only.patch"
+}

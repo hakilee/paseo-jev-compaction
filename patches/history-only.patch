@@ -1,0 +1,79 @@
+diff --git a/codex-rs/config/src/jev.rs b/codex-rs/config/src/jev.rs
+index ae2e50b..504e50e 100644
+--- a/codex-rs/config/src/jev.rs
++++ b/codex-rs/config/src/jev.rs
+@@ -32,0 +33,6 @@ pub fn load_settings(codex_home: &Path) -> JevSettings {
++    if let Ok(mode) = std::env::var("PASEO_JEV_HISTORY") {
++        return JevSettings {
++            tool_compression: false,
++            compaction: mode == "on",
++        };
++    }
+@@ -48,0 +55,7 @@ pub fn load_api_key(codex_home: &Path) -> Option<String> {
++    if std::env::var_os("PASEO_JEV_HISTORY").is_some() {
++        return std::env::var("PASEO_JEV_API_KEY")
++            .ok()
++            .as_deref()
++            .and_then(valid_key)
++            .map(str::to_owned);
++    }
+diff --git a/codex-rs/core/src/jev_compact.rs b/codex-rs/core/src/jev_compact.rs
+index 08dfbaa..bfadba5 100644
+--- a/codex-rs/core/src/jev_compact.rs
++++ b/codex-rs/core/src/jev_compact.rs
+@@ -290,0 +291,6 @@ fn call_id(item: &ResponseItem) -> Option<&str> {
++fn paseo_read_candidate(item: &ResponseItem) -> bool {
++    matches!(item, ResponseItem::FunctionCall { name, namespace, .. }
++        if matches!(namespace.as_deref(), None | Some("functions"))
++            && matches!(name.as_str(), "read_file" | "grep_files" | "list_dir"))
++}
++
+@@ -316,0 +323,3 @@ fn candidate_groups(items: &[ResponseItemEnvelope]) -> Vec<Vec<usize>> {
++            if !paseo_read_candidate(&items[indices[0]].item) {
++                return false;
++            }
+@@ -321,0 +331,3 @@ fn candidate_groups(items: &[ResponseItemEnvelope]) -> Vec<Vec<usize>> {
++            if output.success == Some(false) {
++                return false;
++            }
+@@ -343 +355,3 @@ fn candidate_groups(items: &[ResponseItemEnvelope]) -> Vec<Vec<usize>> {
+-                        !(value.get("wall_time_seconds").is_some()
++                        !(value.get("exit_code").and_then(serde_json::Value::as_i64) == Some(0)
++                            && value.get("session_id").is_none()
++                            && value.get("wall_time_seconds").is_some()
+diff --git a/codex-rs/core/src/jev_compact_tests.rs b/codex-rs/core/src/jev_compact_tests.rs
+index a416be3..eb26698 100644
+--- a/codex-rs/core/src/jev_compact_tests.rs
++++ b/codex-rs/core/src/jev_compact_tests.rs
+@@ -15 +15 @@ fn pair(id: &str, output: &str) -> Vec<ResponseItemEnvelope> {
+-        item(json!({"type":"function_call", "name":"shell", "call_id":id, "arguments":"{}"})),
++        item(json!({"type":"function_call", "name":"read_file", "call_id":id, "arguments":"{}"})),
+@@ -33 +33 @@ fn only_complete_older_groups_are_candidates() {
+-    items.insert(1, item(json!({"type":"function_call", "name":"shell", "call_id":"incomplete", "arguments":"{}"})));
++    items.insert(1, item(json!({"type":"function_call", "name":"read_file", "call_id":"incomplete", "arguments":"{}"})));
+@@ -360 +360 @@ fn structured_results_and_oversized_instructions_are_never_pruned() {
+-fn code_mode_text_blocks_are_grouped_but_media_remains_pinned() {
++fn code_mode_and_media_are_protected_from_history_pruning() {
+@@ -371 +371 @@ fn code_mode_text_blocks_are_grouped_but_media_remains_pinned() {
+-    assert_eq!(candidate_groups(&items), vec![vec![1, 2]]);
++    assert_eq!(candidate_groups(&items), Vec::<Vec<usize>>::new());
+@@ -449,0 +450,19 @@ fn judgment_omits_retained_image_bytes_and_opaque_checkpoints_without_mutating_h
++
++#[test]
++fn paseo_writes_unknown_tools_and_failed_reads_are_pinned() {
++    for name in ["apply_patch", "exec_command", "shell", "mcp_write"] {
++        let mut items = history();
++        items[1] =
++            item(json!({"type":"function_call","name":name,"call_id":"old","arguments":"{}"}));
++        assert_eq!(candidate_groups(&items), Vec::<Vec<usize>>::new());
++    }
++    for output in [
++        r#"{"wall_time_seconds":1,"exit_code":1,"output":"failure"}"#,
++        r#"{"wall_time_seconds":1,"exit_code":0,"session_id":7,"output":"running"}"#,
++    ] {
++        let mut items = history();
++        items[2] = pair("old", output).remove(1);
++        assert_eq!(candidate_groups(&items), Vec::<Vec<usize>>::new());
++    }
++    assert_eq!(candidate_groups(&history()), vec![vec![1, 2]]);
++}

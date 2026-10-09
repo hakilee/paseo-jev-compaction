@@ -1,0 +1,9 @@
+paseo-jev-compaction
+
+Native engine integration uses yannip1234/codex-jev at
+ff35965bba78ac9502424c1d9bc7877f382499a2, derived from OpenAI Codex.
+The native engine and patch retain their Apache License, Version 2.0.
+Upstream source attribution and notices remain in the pinned checkout.
+
+No fast-jev-compaction source is redistributed. Its tool-pair selection
+approach informed the integration evaluation.
